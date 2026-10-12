@@ -325,9 +325,12 @@ int main() {
     assert(session->play());
     assert(! mock->last_paused);
 
-    for (int i = 0; i < kMissingAcceleratedFrameWarningUpdates; ++i) {
+    const auto opens_before_missing_frames = mock->callCount("OpenWallpaper");
+    for (int i = 0; i < kMissingAcceleratedFrameWarningUpdates - 1; ++i) {
         assert(backend->update());
     }
+    assert(mock->callCount("OpenWallpaper") == opens_before_missing_frames);
+    assert(backend->update());
     diagnostics                              = backend->diagnostics();
     std::size_t missing_accelerated_warnings = 0;
     for (const auto& entry : diagnostics.entries) {
@@ -335,8 +338,21 @@ int main() {
             ++missing_accelerated_warnings;
         }
     }
-    requireAt(missing_accelerated_warnings == 0,
-              "no missing accel warning when shm fallback is enabled");
+    requireAt(missing_accelerated_warnings == 1,
+              "missing accelerated frames request SHM fallback once");
+    assert(backend->update());
+    assert(mock->callCount("OpenWallpaper") == opens_before_missing_frames + 1);
+    assert(! mock->has_accelerated_paint_callback);
+
+    // Re-enable accelerated paint for the remaining frame delivery contract.
+    // A binding that requires DMA-BUF clears the software-only override.
+    wallpaper::RenderInitInfo requireDmabuf = resizedInfo;
+    requireDmabuf.allow_shm_fallback = false;
+    assert(session->bindOutput(wallpaper::MakeWebOutputTarget(
+        wallpaper::MakeWebOutputBinding(requireDmabuf))));
+    assert(session->bindOutput(wallpaper::MakeWebOutputTarget(resizedBinding)));
+    assert(backend->update());
+    assert(mock->has_accelerated_paint_callback);
 
     assert(mock->callCount("Pump") >= 1);
     assert(mock->callCount("Invalidate") >= 1);
@@ -435,7 +451,7 @@ int main() {
 
     // Stop shuts down CEF once; runtime fallback only reopened the OSR browser.
     assert(session->stop());
-    assert(mock->request_close_count == 2);
+    assert(mock->request_close_count == 4);
     assert(mock->callCount("Shutdown") == 1);
 
     auto missingHelperServices = std::make_shared<wallpaper::WebEngineServices>();

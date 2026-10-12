@@ -549,7 +549,7 @@ Result<void> WebBackend::update() {
     if (m_browserHost) {
         if (! m_paused) {
             m_browserHost->Invalidate();
-            if (! m_softwareFallbackEnabled && ! m_sharedState->acceleratedFrameSeen.load() &&
+            if (m_acceleratedPaintActive && ! m_sharedState->acceleratedFrameSeen.load() &&
                 ! m_reportedMissingAcceleratedFrames) {
                 ++m_updatesWithoutAcceleratedFrame;
                 if (m_updatesWithoutAcceleratedFrame >= kMissingAcceleratedFrameWarningUpdates) {
@@ -558,7 +558,12 @@ Result<void> WebBackend::update() {
                         DiagnosticSeverity::Warning,
                         "web backend has not received any accelerated paint frames after " +
                             std::to_string(kMissingAcceleratedFrameWarningUpdates) +
-                            " update cycles; only dma-buf output is currently supported");
+                            (m_softwareFallbackEnabled
+                                 ? " update cycles; switching to software paint"
+                                 : " update cycles; SHM fallback is disabled"));
+                    if (m_softwareFallbackEnabled) {
+                        m_forceSoftwareRestartRequested.store(true);
+                    }
                 }
             }
         }
